@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>{% block tilte %}{% endblock %}</title>
+</head>
+<body>
+<div>
+    {% if current_user.is_authenticated %}
+    <p>
+        <span style="font-weight:bold;">{{ current_user.username }}</span> -
+        <span><a href="{{ url_for('auth.logout') }}">ログアウト</a></span>
+    </p>
+    {% endif %}
+</div>
+    {% block content %}{% endblock %}
+</body>
+</html>
