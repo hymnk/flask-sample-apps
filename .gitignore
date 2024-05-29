@@ -1,5 +1,6 @@
 *.sqlite
 .env
+*.pt
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,flask,vscode
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,flask,vscode
