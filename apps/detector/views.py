@@ -1,22 +1,11 @@
-import uuid
-from pathlib import Path
-from random import random
-
-import cv2
-import torch
-import torchvision
-from flask import Blueprint, render_template, send_from_directory, current_app, redirect, url_for
-from flask_login import login_required, current_user
-from torchvision.tv_tensors import Image
+from flask import Blueprint, render_template
 
 from apps.app import db
 from apps.crud.models import User
 from apps.detector.models import UserImage
-from apps.detector.forms import UploadImageForm
 
 # template_folderを指定する(staticは指定しない)
 dt = Blueprint("detector", __name__, template_folder="templates")
-
 
 # dtアプリケーションを使ってエンドポイントを作成する
 @dt.route("/")
@@ -29,123 +18,3 @@ def index():
         .all()
     )
     return render_template("detector/index.html", user_images=user_images)
-
-
-@dt.route("/images/<path:filename>")
-def image_file(filename):
-    return send_from_directory(current_app.config["UPLOAD_FOLDER"], filename)
-
-
-@dt.route("/route", methods=["GET", "POST"])
-# ログイン必須とする
-@login_required
-def upload_image():
-    # UploadImageFormを利用してバリデーションをする
-    form = UploadImageForm()
-    if form.validate_on_submit():
-        # アップロードされた画像ファイルを取得する
-        file = form.image.data
-        # ファイルのファイル名と拡張子を取得し、ファイル名をuuidに変換する
-        ext = Path(file.filename).suffix
-        image_uuid_file_name = str(uuid.uuid4()) + ext
-
-        # 画像を保存する
-        image_path = Path(
-            current_app.config["UPLOAD_FOLDER"], image_uuid_file_name
-        )
-        file.save(image_path)
-
-        # DBに保存する
-        user_image = UserImage(
-            user_id=current_user.id, image_path=image_uuid_file_name
-        )
-        db.session.add(user_image)
-        db.session.commit()
-
-        return redirect(url_for("detector.index"))
-    return render_template("detector/upload.html", form=form)
-
-
-def make_color(labels):
-    # 枠線の色をランダムに決定
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in labels]
-    color = random.choice(colors)
-    return color
-
-def make_line(result_image):
-    # 枠線を作成
-    line = round(0.002 + max(result_image.shape[0:2])) + 1
-    return line
-
-def draw_lines(c1, c2, result_image, line, color):
-    cv2.rectangle(result_image, c1, c2, color, thickness=line)
-    return cv2
-
-def draw_texts(result_image, line, c1, cv2, color, labels, label):
-    # 検知したテキストラベルを画像に追記
-    display_txt = f"{labels[label]}"
-    font = max(line - 1, 1)
-    t_size = cv2.getTextSize(display_txt, 0, fontScale=line / 3, thickness=font)[0]
-    c2 = c1[0] + t_size[0], c1[1] - t_size[1] -3
-    cv2.rectangle(result_image, c1, c2, color, -1)
-    cv2.putText(
-        result_image,
-        display_txt,
-        (c1[0], c1[1] - 2),
-        0,
-        line /3,
-        [225, 225, 255],
-        thickness=font,
-        lineType=cv2.LINE_AA,
-    )
-    return cv2
-
-def exec_detect(target_image_path):
-    # ラベルの読み込み
-    labels = current_app.config["LABELS"]
-    # 画像の読み込み
-    image = Image.open(target_image_path)
-    # 画像データをテンソル型の数値データへ変換
-    image_tensor = torchvision.transforms.functional.to_tensor(image)
-
-    # 学習済みモデルの読み込み
-    model = torch.load(Path(current_app.root_path, "detector", "model.pt"))
-    # モデルの推論モードに切り替え
-    model = model.eval()
-    # 推論の実行
-    output = model([image_tensor])[0]
-
-    tags = []
-    result_image = np.array(image.copy())
-    # 学習済みモデルが検知した各物体の分だけ画像に追記
-    for box, label, score in zip(
-        output["boxes"], output["labels"], output["scores"]
-    ):
-        if score > 0.5 and labels[label] not in tags:
-            # 枠線の色の決定
-            color = make_color(labels)
-            # 枠線の作成
-            line = make_line(result_image)
-            # 検知画像の枠線とテキストラベルの枠線の位置情報
-            c1 = (int(box[0]), int(box[1]))
-            c2 = (int(box[2]), int(box[3]))
-            # 画像に枠線を追記
-            cv2 = draw_lines(c1, c2, result_image, line, color)
-            # 画像にテキストラベルおｗ追記
-            cv2 = draw_texts(result_image, line, c1, cv2, color, labels, label)
-            tags.append(labels[label])
-
-    # 検知後の画像ファイル名を生成する
-    detected_image_file_name = str(uuid.uuid4()) + ".jpg"
-    # 画像コピー先パスを取得する
-    detected_image_file_path = str(
-        Path(current_app.config["UPLOAD_FOLDER"], detected_image_file_name)
-    )
-
-    # 変換後の画像ファイルを保存先へコピーする
-    cv2.imwrite(
-        detected_image_file_path, cv2.cvtColor(
-            result_image, cv2.COLOR_BGR2BGR)
-    )
-
-    return tags, detected_image_file_name
